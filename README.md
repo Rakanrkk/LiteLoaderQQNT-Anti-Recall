@@ -1,5 +1,53 @@
 # LiteLoaderQQNT - anti-recall
 
+## 本分支：原生聊天记录撤回筛选
+
+这是 [xh321/LiteLoaderQQNT-Anti-Recall](https://github.com/xh321/LiteLoaderQQNT-Anti-Recall) 的个人开发 fork，保留原仓库历史。目前仅验证 **macOS arm64 / QQ 7.0.2（build 53644）/ LiteLoaderQQNT 1.4.1**；其他 QQ 构建和平台尚未实测此筛选功能。
+
+- 在 QQ 自带“聊天记录”搜索栏旁开启“仅看撤回”，在同一原生列表中显示插件保存的原文。
+- 搜索、发送者、日期筛选，以及消息旁的“跳转到聊天”沿用 QQ 自带功能；聊天主界面没有浮动菜单，也没有独立的自制列表窗口。
+- 普通新消息不触发插件查询或清空结果，新撤回仅提示“更新”，由用户点击重新读取。
+- 修复 JSON 持久化丢失 Map/字节数组类型导致的原生内容空白，以及群撤回兜底气泡的重复缩进。
+- 关闭“仅看撤回”后恢复 QQ 原来的记录数据源。筛选范围由原生窗口的会话类型与 peerUid 限定，不修改官方聊天数据库。
+
+### 开发分支安装
+
+先安装兼容的 LiteLoaderQQNT。将本分支源码放入其 `plugins/qq-anti-recall` 目录，在插件目录运行依赖安装，完全退出后再启动 QQ：
+
+```bash
+npm ci
+```
+
+已有配置、撤回数据库与图片位于 LiteLoader 的 `data/anti_recall`，升级时保留该目录。全新配置的数据库保存仍默认关闭，可在插件设置中开启。本 fork 尚未发布 Release；下方原作者的 Release 安装说明指向上游原版。
+
+本分支使用明确声明的 `level` 7 作为 macOS 的进程内数据库，不依赖整合包内被手动修改过的 `node_modules`；其他平台保留 `level-party`。代码来源和兼容基础见 [PROVENANCE.md](PROVENANCE.md)，具体验证见 [docs/verification.md](docs/verification.md)。
+
+### 测试
+
+需要 Node.js 24 或更新版本。所有回归用例均使用合成数据和临时目录，不访问真实 QQ 数据。
+
+```bash
+npm test
+```
+
+包含下载器的本地回环测试：
+
+```bash
+RUN_NETWORK_TESTS=1 npm test
+```
+
+原生记录 UI 模拟集成测试需 Chrome/Chromium（可用 `CHROME_BIN` 指定），以及在仓库根目录启动的本地静态服务；设置 `BASE_URL` 后运行：
+
+```bash
+BASE_URL=http://127.0.0.1:8747 node tests/test-native-record-filter.mjs
+```
+
+限制：只能查看插件已实际捕获的消息；离线期间或启用前已撤回的内容不能补回。旧数据库的 JSON 编码已丢失的 Map 条目无法还原，本分支恢复原生渲染所需容器类型。原生组件使用内部接口，QQ 更新后可能需要适配。插件保存及图片下载沿用原实现，第三方公共 rkey 服务的联网行为也仍存在，见 `rkeyManager.js`。兼容基础会在插件数据目录写入受大小限制的 `global-capture-events.jsonl` 诊断日志，包含时间、路由、事件名及消息／会话标识的截短哈希，不记录正文；它仍属于需自行保管的本地运行数据，不会随本仓库上传。
+
+---
+
+以下保留上游项目原说明。
+
 LiteLoaderQQNT 插件，用于比较完善的防撤回。
 使用前需要安装 [LiteLoaderQQNT](https://github.com/mo-jinran/LiteLoaderQQNT) ，并在 QQNT 新版上使用。
 

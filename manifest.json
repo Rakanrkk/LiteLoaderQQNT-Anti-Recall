@@ -3,7 +3,7 @@
     "type": "extension",
     "name": "防撤回",
     "slug": "anti_recall",
-    "description": "防止QQNT撤回消息",
+    "description": "防止QQNT撤回消息，支持原生聊天记录撤回筛选",
     "version": "0.3.0",
     "icon": "./icon.png",
     "authors": [
@@ -13,12 +13,8 @@
         }
     ],
     "repository": {
-        "repo": "xh321/LiteLoaderQQNT-Anti-Recall",
-        "branch": "master",
-        "release": {
-            "tag": "0.3.0",
-            "file": "qq-anti-recall.zip"
-        }
+        "repo": "Rakanrkk/LiteLoaderQQNT-Anti-Recall",
+        "branch": "feat/native-recall-filter"
     },
     "platform": ["win32", "darwin", "linux"],
     "injects": {

@@ -1,3 +1,7 @@
+import { installHistoryWindowLauncher } from "./windowLauncher.js";
+
+installHistoryWindowLauncher();
+
 var recalledMsgSet = new Set();
 // The main process keeps the legacy API name, but this set intentionally
 // contains every persisted group recall (text, image, or mixed).
@@ -13,7 +17,7 @@ export async function onSettingWindowCreated(view) {
       <setting-item class="config_view">
         <setting-section data-title="主配置">
           <setting-panel>
-            <setting-list data-direction="column">     
+            <setting-list data-direction="column">
                 <setting-item data-direction="row">
                   <setting-text>操作</setting-text>
                     <button id="clearDb" class="q-button q-button--small q-button--secondary">清空已储存的撤回消息</button>
@@ -49,7 +53,7 @@ export async function onSettingWindowCreated(view) {
                         }"/>条
                   </div>
                 </setting-item>
-    
+
                 <setting-item data-direction="row">
                   <div>
                     <h2>清理内存缓存消息时一次性清理多少</h2>
@@ -68,7 +72,7 @@ export async function onSettingWindowCreated(view) {
           </setting-panel>
         </setting-section>
 
-        
+
         <setting-section data-title="样式配置">
           <setting-panel>
 
@@ -84,7 +88,7 @@ export async function onSettingWindowCreated(view) {
                 </div>
               </setting-item>
 
-              <hr class="horizontal-dividing-line" />          
+              <hr class="horizontal-dividing-line" />
 
               <div class="vertical-list-item">
                 <div>
@@ -96,7 +100,7 @@ export async function onSettingWindowCreated(view) {
                 </div>
               </div>
 
-              <hr class="horizontal-dividing-line" />          
+              <hr class="horizontal-dividing-line" />
 
               <div class="vertical-list-item">
                 <div>
@@ -107,7 +111,7 @@ export async function onSettingWindowCreated(view) {
                   <span class="q-switch__handle"></span>
                 </div>
               </div>
-              
+
             </setting-list>
           </setting-panel>
         </setting-section>
@@ -126,21 +130,21 @@ export async function onSettingWindowCreated(view) {
             transition: all 100ms ease-out;
             border: 1px solid #464646;
           }
-        
+
           .path-input:focus {
             padding-left: 4px;
           }
-          
+
           .bq-icon {
             height:16px;
             width:16px;
           }
-          
+
           /* 通用 */
           .config_view {
               margin: 20px;
           }
-          
+
           .config_view h1 {
               color: var(--text_primary);
               font-weight: var(--font-bold);
@@ -149,7 +153,7 @@ export async function onSettingWindowCreated(view) {
               padding: 0px 16px;
               margin-bottom: 8px;
           }
-          
+
           .config_view .wrap {
               /* Linux样式兼容：--fg_white */
               background-color: var(--fill_light_primary, var(--fg_white));
@@ -160,54 +164,54 @@ export async function onSettingWindowCreated(view) {
               overflow: hidden;
               padding: 0px 16px;
           }
-          
+
           .config_view .vertical-list-item {
               margin: 12px 0px;
               display: flex;
               justify-content: space-between;
               align-items: center;
           }
-          
+
           .config_view .horizontal-dividing-line {
               border: unset;
               margin: unset;
               height: 1px;
               background-color: rgba(127, 127, 127, 0.15);
           }
-          
+
           .config_view .vertical-dividing-line {
               border: unset;
               margin: unset;
               width: 1px;
               background-color: rgba(127, 127, 127, 0.15);
           }
-          
+
           .config_view .ops-btns {
               display: flex;
           }
-          
+
           .config_view .hidden {
               display: none !important;
           }
-          
+
           .config_view .disabled {
               pointer-events: none;
               opacity: 0.5;
           }
-          
+
           .config_view .secondary-text {
               color: var(--text_secondary);
               font-size: min(var(--font_size_2), 16px);
               line-height: min(var(--line_height_2), 22px);
               margin-top: 4px;
           }
-          
+
           .config_view .wrap .title {
               cursor: pointer;
               font-size: min(var(--font_size_3), 18px);
               line-height: min(var(--line_height_3), 24px);
           }
-          
+
           .config_view .wrap .title svg {
               width: 1em;
               height: 1em;
@@ -217,12 +221,12 @@ export async function onSettingWindowCreated(view) {
               transition-delay: 0s;
               transition-property: transform;
           }
-          
+
           .config_view .wrap .title svg.is-fold {
               transform: rotate(0deg);
           }
-          
-          
+
+
           /* 模态框 */
           .config_view .modal-window {
               display: flex;
@@ -236,58 +240,58 @@ export async function onSettingWindowCreated(view) {
               z-index: 999;
               background-color: rgba(0, 0, 0, 0.5);
           }
-          
+
           .config_view .modal-dialog {
               width: 480px;
               border-radius: 8px;
               /* Linux样式兼容：--fg_white */
               background-color: var(--bg_bottom_standard, var(--fg_white));
           }
-          
+
           .config_view .modal-dialog header {
               font-size: 12px;
               height: 30px;
               line-height: 30px;
               text-align: center;
           }
-          
+
           .config_view .modal-dialog main {
               padding: 0px 16px;
           }
-          
+
           .config_view .modal-dialog main p {
               margin: 8px 0px;
           }
-          
+
           .config_view .modal-dialog footer {
               height: 30px;
               display: flex;
               justify-content: right;
               align-items: center;
           }
-          
+
           .config_view .modal-dialog .q-icon {
               width: 22px;
               height: 22px;
               margin: 8px;
           }
-          
-          
+
+
           /* 版本号 */
           .config_view .versions .wrap {
               display: flex;
               justify-content: space-between;
               padding: 16px 0px;
           }
-          
+
           .config_view .versions .wrap>div {
               flex: 1;
               margin: 0px 10px;
               border-radius: 8px;
               text-align: center;
           }
-          
-          
+
+
           /* 数据目录 */
           .config_view .path .path-input {
               align-self: normal;
@@ -296,25 +300,25 @@ export async function onSettingWindowCreated(view) {
               margin-right: 16px;
               transition: all 100ms ease-out;
           }
-          
+
           .config_view .path .path-input:focus {
               padding-left: 5px;
               background-color: rgba(127, 127, 127, 0.1);
           }
-          
+
           /* 选择框容器 */
           .config_view .list-ctl .ops-selects {
               display: flex;
               gap: 8px;
           }
-          
+
 
           @media (prefers-color-scheme: light) {
               .text_color {
                   color: black;
               }
           }
-          
+
           @media (prefers-color-scheme: dark) {
               .text_color {
                   color: white;
@@ -450,7 +454,9 @@ async function patchCss() {
   stylee.type = "text/css";
   stylee.id = "anti-recall-css";
 
-  var sHtml = `   .message-content__wrapper {
+  var sHtml = `   /* Scoped to chat message items: the bare global rule also hit
+                     native #/record page components using the same class. */
+                  .ml-item .message-content__wrapper {
                     color: var(--bubble_guest_text);
                     display: flex;
                     grid-row-start: content;
@@ -460,7 +466,7 @@ async function patchCss() {
                     max-width: -webkit-fill-available;
                     min-height: 38px;
                     overflow: visible !important;
-                    border-radius: 10px; 
+                    border-radius: 10px;
                   }
 
                   .message-content__wrapper.message-content-recalled-parent {
@@ -517,12 +523,9 @@ async function patchCss() {
                 display: flex;
                 align-items: flex-start;
                 gap: 10px;
-                margin: 8px 0 28px 40px;
+                margin: 8px 0 28px 0;
                 max-width: min(70%, 720px);
-            }
-
-            .anti-recall-group-message-fallback--native-avatar {
-                margin-left: 86px;
+                grid-column: 1 / -1;
             }
 
             .anti-recall-group-avatar-fallback {
@@ -570,6 +573,23 @@ async function patchCss() {
                 color: var(--bubble_guest_text, #000);
                 white-space: pre-wrap;
                 overflow-wrap: anywhere;
+            }
+
+            /* Host is the native .message-content__wrapper that carries the
+               fallback; neutralize only that one box so the hidden native
+               bubble does not render a second bubble behind the fallback. */
+            .anti-recall-fallback-host {
+                background: transparent !important;
+                box-shadow: none !important;
+                padding: 0 !important;
+            }
+
+            /* appendRecalledTag() adds .message-content-recalled-parent to the
+               fallback bubble; that class carries chat-wide margins (15px/25px,
+               3px sides in shadow mode). The fallback provides its own spacing,
+               so zero them to avoid a double indent and stretched column. */
+            .anti-recall-group-bubble-fallback.message-content-recalled-parent {
+                margin: 0 !important;
             }
         `;
   stylee.innerHTML = sHtml;
@@ -877,13 +897,34 @@ async function onLoad() {
     column.appendChild(bubble);
     if (avatar) fallback.appendChild(avatar);
     fallback.appendChild(column);
-    messageElement.appendChild(fallback);
+    // Host the fallback beside the hidden native content inside the same
+    // .message-content__wrapper when one exists, so it inherits QQ's native
+    // bubble column instead of guessing avatar offsets with hard margins
+    // (the old 40px/86px margins double-indented after a jump back).
+    var fallbackHost = messageElement;
+    var fallbackAnchor = null;
+    if (nativeContentRoot && nativeContentRoot.parentElement) {
+      var hostCandidate = nativeContentRoot.classList.contains("message-content__wrapper")
+        ? nativeContentRoot.parentElement
+        : (nativeContentRoot.closest(".message-content__wrapper") || nativeContentRoot.parentElement);
+      if (hostCandidate && hostCandidate !== messageElement && !hostCandidate.classList.contains("ml-item")) {
+        fallbackHost = hostCandidate;
+        fallbackHost.classList.add("anti-recall-fallback-host");
+        fallbackAnchor = nativeContentRoot.parentElement === hostCandidate ? nativeContentRoot : hostCandidate.firstChild;
+      } else if (nativeContentRoot.parentElement === messageElement) {
+        // Defensive: no wrapper between the item and the content root; the
+        // grid-column: 1 / -1 rule keeps the fallback on a full native row.
+        fallbackAnchor = nativeContentRoot;
+      }
+    }
+    fallbackHost.insertBefore(fallback, fallbackAnchor);
     await appendRecalledTag(bubble);
     messageElement.dataset.antiRecallImageFallback = "ready";
     for (var nativeImage of nativeImages) {
       nativeImage.addEventListener("load", () => {
         if (!nativeImages.some((img) => img.complete && img.naturalWidth > 1)) return;
         fallback.remove();
+        if (fallbackHost !== messageElement) fallbackHost.classList.remove("anti-recall-fallback-host");
         messageElement.querySelectorAll("[data-anti-recall-native-hidden]").forEach((element) => {
           element.style.display = "";
           delete element.dataset.antiRecallNativeHidden;

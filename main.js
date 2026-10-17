@@ -11,6 +11,8 @@ const {
   collectMessageRecords,
   collectRecentContactTargets,
 } = require("./eventParser.js");
+const { createRecallHistory } = require("./recallHistory.js");
+const { restoreNativeRecordTypes } = require("./nativeRecord.js");
 
 var configFilePath = "";
 var pluginDataDir = path.join(LiteLoader.path.data, "anti_recall");
@@ -18,8 +20,18 @@ const recalledDbPath = path.join(pluginDataDir, "qq-recalled-db");
 
 const imageStore = new ImageStore(pluginDataDir, getRecordId);
 const imgDownloader = new ImgDownloader();
+// Built before the onLoad() call below so both history IPC handlers always
+// resolve against an initialized module (no TDZ window).
+const recallHistory = createRecallHistory({
+  getKnownRecalledIds,
+  findCachedMessage,
+  imageStore,
+  cloneRecord: cloneForCache,
+  normalizeRecord: (record) => imageStore.normalizeRecord(record),
+  isSaveDbEnabled: () => Boolean(nowConfig.saveDb),
+});
 // macOS QQ's App Sandbox cannot open level-party's Unix-domain socket.
-// The database is shared by windows in this main process, so use Level directly.
+// All windows use the shared main-process database handle.
 const Level = require(process.platform === "darwin" ? "level" : "level-party");
 var db = null;
 
@@ -104,6 +116,30 @@ async function onLoad() {
     async (event, msgId) => {
       await recalledDbIndexReady.catch(() => {});
       return getRecalledGroupImagePayloads(String(msgId || ""));
+    }
+  );
+
+  ipcMain.handle(
+    "LiteLoader.anti_recall.getRecallHistoryContext",
+    async (event, payload) => {
+      await recalledDbIndexReady.catch(() => {});
+      return recallHistory.getContext(payload);
+    }
+  );
+
+  ipcMain.handle(
+    "LiteLoader.anti_recall.getRecallHistory",
+    async (event, query) => {
+      await recalledDbIndexReady.catch(() => {});
+      return recallHistory.getHistory(query);
+    }
+  );
+
+  ipcMain.handle(
+    "LiteLoader.anti_recall.getNativeRecallRecords",
+    async (event, query) => {
+      await recalledDbIndexReady.catch(() => {});
+      return recallHistory.getNativeRecords(query);
     }
   );
 
@@ -198,6 +234,13 @@ async function onLoad() {
           } finally {
             clearingStoredMessages = false;
           }
+          // Drop cached history entries/image stats from before the wipe so
+          // the next list is queried fresh, and let open panels reload.
+          recallHistory.invalidateCache();
+          sendChatWindowsMessage(
+            "LiteLoader.anti_recall.mainWindow.recallHistoryChanged",
+            null
+          );
           dialog.showMessageBox({
             type: "info",
             title: "提示",
@@ -1043,7 +1086,7 @@ async function recoverRecallRecord(record, window, options = {}) {
       sendChatWindowsMessage("LiteLoader.anti_recall.mainWindow.recalledImageReady", id);
     }
   }).catch(() => {});
-  const originalRecord = cloneForCache(entry.msg);
+  const originalRecord = restoreNativeRecordTypes(cloneForCache(entry.msg));
   originalRecord.isOnlineMsg = true;
   mergeOriginalIntoRecall(record, originalRecord);
   return {
@@ -1063,7 +1106,7 @@ function sendChatWindowsMessage(message, ...args) {
 function rememberChatWindow(window) {
   if (window.isDestroyed()) return;
   const url = window.webContents.getURL();
-  if (!url.includes("#/main/message") && !url.includes("#/chat")) return;
+  if (!url.includes("#/main/message") && !url.includes("#/chat") && !url.includes("#/record")) return;
   if (!mainWindowObjs.includes(window)) mainWindowObjs.push(window);
 }
 
@@ -1143,6 +1186,14 @@ function patchWindowSend(window) {
             recovered.id,
             Number(recovered.entry?.msg?.chatType) === 2 &&
               recordHasGroupFallbackContent(recovered.entry?.msg)
+          );
+          // Tell history panels a saved recall was added so they can refetch.
+          sendChatWindowsMessage(
+            "LiteLoader.anti_recall.mainWindow.recallHistoryChanged",
+            {
+              peerUid: getRecordPeer(recovered.entry?.msg),
+              chatType: Number(recovered.entry?.msg?.chatType) || 0,
+            }
           );
           appendDiagnostic("recall-recovered", window, commandNames, [recallRecord], {
             source: recovered.source,

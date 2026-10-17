@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>native-record-filter fixture</title>
+<style>
+  body { font: 13px sans-serif; margin: 12px; }
+  [hidden] { display: none !important; }
+  .record-search { display: flex; align-items: center; gap: 8px; padding: 8px; border: 1px solid #bbb; margin-bottom: 8px; }
+  .record-search input { flex: 1; }
+  .record-item { display: block; width: 100%; text-align: left; margin: 2px 0; }
+</style>
+</head>
+<body>
+<!-- 聊天主路由：无 .record-search / .record-all-msg 可见面板 -->
+<div id="chat-main">
+  <h3>聊天主页面</h3>
+  <div class="message-list">
+    <div class="plain-msg">普通消息 a</div>
+    <div class="plain-msg">普通消息 b</div>
+  </div>
+</div>
+<!-- 原生 #/record 页面 -->
+<div id="record-page" hidden>
+  <div class="record" id="recordRoot">
+    <div class="record-search"><input id="kw-input" placeholder="搜索聊天记录"></div>
+    <div class="record-all-msg" id="recordList"></div>
+  </div>
+</div>
+<script>
+"use strict";
+/* 模拟 QQ 原生 record 页环境：raw records（实机形态：msgTime 字符串数字、
+   textElement.content 全量原始元素）、reactive store（setter 触发 render）、
+   __VUE__ 组件实例（ctx.targetToChat / proxy.store / props.chatInfo /
+   queryParams={peerUid,chatType} / queryFilterParams.filterSendersUid 每次访问新数组）、
+   window.anti_recall mock。全部合成数据，不读取真实 QQ 消息。 */
+(function () {
+  const state = (window.__TEST_STATE = {
+    ready: false, bootError: null,
+    apiCalls: [], nativeCalls: [], jumps: [], recallSubs: 0,
+    view: { ids: [], dates: [] }, renderCount: 0,
+  });
+
+  /* ---------- 合成 raw records（原生普通记录 + 插件保存的撤回记录，实机字段形态） ---------- */
+  const RECALLED = [
+    { msgId: "recall-1001", msgSeq: "7", msgTime: "1760000400", senderUid: "u1", elements: [{ type: "text", textElement: { content: "撤回样本A 专有词" } }] },
+    { msgId: "recall-1002", msgSeq: "8", msgTime: "1760003400", senderUid: "u2", elements: [{ type: "text", textElement: { content: "撤回样本B" } }] },
+    { msgId: "recall-1003", msgSeq: "9", msgTime: "1757390000", senderUid: "u1", elements: [{ type: "text", textElement: { content: "撤回样本C 专有词" } }] },
+  ];
+  const NATIVE_GROUPS = [
+    { date: "2026/10/09", list: [
+      { msgId: "native-1", msgSeq: "100", msgTime: 1760001000, elements: [{ type: "text", textElement: { content: "普通消息一" } }] },
+      { msgId: "native-2", msgSeq: "101", msgTime: 1760001600, elements: [{ type: "text", textElement: { content: "普通消息二 专有词" } }] },
+    ] },
+  ];
+  window.__RECALLED_REF = RECALLED;
+  const textOf = (r) => (r.elements || []).map((e) => (e.textElement && e.textElement.content) || e.content || e.text || "").join("");
+
+  /* ---------- mock 原生 store：messageList/isFinished/isLoading 为 configurable 访问器，
+     setter 触发 render；getMsg/getMoreMsg/setMessageList 为 own accessor（get 返回 backing fn）；
+     其余方法普通 writable。 ---------- */
+  const store = {};
+  let _messageList = NATIVE_GROUPS;
+  let _isFinished = true;
+  let _isLoading = false;
+  let renderPending = false;
+  function scheduleRender() {
+    if (renderPending) return;
+    renderPending = true;
+    queueMicrotask(render);
+  }
+  function render() {
+    renderPending = false;
+    state.renderCount++;
+    const root = document.getElementById("recordList");
+    root.textContent = "";
+    const ids = [];
+    const dates = [];
+    for (const g of _messageList || []) {
+      dates.push(g.date);
+      const h = document.createElement("div");
+      h.className = "record-date";
+      h.textContent = g.date;
+      root.append(h);
+      for (const rec of g.list || []) {
+        ids.push(String(rec.msgId));
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "record-item";
+        b.dataset.msgId = String(rec.msgId);
+        b.dataset.msgSeq = String(rec.msgSeq);
+        b.textContent = rec.msgId + " · seq " + rec.msgSeq;
+        /* render 使用启动时保存的原生跳转函数：若实现偷换 ctx.targetToChat，这里仍指向原函数，
+           断言「跳转原样」才有效。 */
+        b.addEventListener("click", () => nativeTargetToChat(rec));
+        root.append(b);
+      }
+    }
+    state.view = { ids, dates };
+  }
+
+  const NATIVE_ML_DESC = {
+    configurable: true, enumerable: true,
+    get() { return _messageList; },
+    set(v) { _messageList = v; scheduleRender(); },
+  };
+  Object.defineProperty(store, "messageList", NATIVE_ML_DESC);
+  const FIN_DESC = {
+    configurable: true, enumerable: true,
+    get() { return _isFinished; },
+    set(v) { _isFinished = Boolean(v); },
+  };
+  Object.defineProperty(store, "isFinished", FIN_DESC);
+  const LOAD_DESC = {
+    configurable: true, enumerable: true,
+    get() { return _isLoading; },
+    set(v) { _isLoading = Boolean(v); scheduleRender(); },
+  };
+  Object.defineProperty(store, "isLoading", LOAD_DESC);
+
+  function nativeGetMsg(qp) {
+    state.nativeCalls.push({ fn: "getMsg", args: [qp && { ...qp }] });
+    const kw = qp && typeof qp.keyword === "string" ? qp.keyword : "";
+    const groups = kw
+      ? NATIVE_GROUPS.map((g) => ({ date: g.date, list: g.list.filter((r) => textOf(r).includes(kw)) })).filter((g) => g.list.length)
+      : NATIVE_GROUPS;
+    store.messageList = groups.map((g) => ({ date: g.date, list: [...g.list] }));
+    return Promise.resolve();
+  }
+  Object.defineProperty(store, "getMsg", { configurable: true, enumerable: true, get() { return nativeGetMsg; }, set() {} });
+  function nativeGetMoreMsg(qp) {
+    state.nativeCalls.push({ fn: "getMoreMsg", args: [qp && { ...qp }] });
+    return Promise.resolve();
+  }
+  Object.defineProperty(store, "getMoreMsg", { configurable: true, enumerable: true, get() { return nativeGetMoreMsg; }, set() {} });
+  function nativeSetMessageList(groups) {
+    state.nativeCalls.push({ fn: "setMessageList", args: [Array.isArray(groups) ? groups.map((g) => g.date) : null] });
+    store.messageList = groups;
+  }
+  Object.defineProperty(store, "setMessageList", { configurable: true, enumerable: true, get() { return nativeSetMessageList; }, set() {} });
+
+  function nativeGetMsgByKeyWord(kw) {
+    state.nativeCalls.push({ fn: "getMsgByKeyWord", args: [kw] });
+    return nativeGetMsg({ peerUid: "g", chatType: 2, keyword: kw });
+  }
+  store.getMsgByKeyWord = nativeGetMsgByKeyWord;
+  store.getFirstScreenMsgWithFilter = function (qp) { state.nativeCalls.push({ fn: "getFirstScreenMsgWithFilter", args: [qp && { ...qp }] }); return nativeGetMsg(qp); };
+  store.startFilterQuery = function (qp) { state.nativeCalls.push({ fn: "startFilterQuery", args: [qp && { ...qp }] }); return nativeGetMsg(qp); };
+  store.invokeFilterQuery = function (qp) { state.nativeCalls.push({ fn: "invokeFilterQuery", args: [qp && { ...qp }] }); return nativeGetMsg(qp); };
+  store.setFilteredMsgList = function (groups) { state.nativeCalls.push({ fn: "setFilteredMsgList", args: [Array.isArray(groups) ? groups.map((g) => g.date) : null] }); store.messageList = groups; };
+  store.updateMessageList = function (groups) { state.nativeCalls.push({ fn: "updateMessageList", args: [] }); store.messageList = groups; };
+  store.handleMsgQueryResult = function (res) { state.nativeCalls.push({ fn: "handleMsgQueryResult", args: [res == null ? null : "obj"] }); if (res && res.groups) store.messageList = res.groups; };
+  store.applyFilterQueryResult = function (res) { state.nativeCalls.push({ fn: "applyFilterQueryResult", args: [res == null ? null : "obj"] }); if (res && res.groups) store.messageList = res.groups; };
+  store.clearMessageList = function () { state.nativeCalls.push({ fn: "clearMessageList", args: [] }); store.messageList = []; };
+  store.cancelPendingRequests = function () { state.nativeCalls.push({ fn: "cancelPendingRequests", args: [] }); };
+  store.lastMsg = null;
+  store.searchMore = false;
+  store.msgCount = 2;
+  store.counts = { all: 2 };
+
+  window.__NATIVE_ML_DESC = NATIVE_ML_DESC;
+  window.__NATIVE_GET_MSG = nativeGetMsg;
+  window.__NATIVE_KW_FN = nativeGetMsgByKeyWord;
+  window.__TEST_STORE = store;
+  window.__rawStoreRecords = () => (_messageList || []).flatMap((g) => g.list || []);
+  window.__flat = () => window.__rawStoreRecords().map((r) => String(r.msgId));
+
+  /* ---------- mock Vue 组件实例（windowLauncher 经 .record-all-msg.__VUE__ 发现） ---------- */
+  function nativeTargetToChat(record) {
+    state.jumps.push({ msgId: record.msgId, msgSeq: record.msgSeq });
+    return true;
+  }
+  window.__NATIVE_TARGET_TO_CHAT = nativeTargetToChat;
+  const instance = {
+    props: { chatInfo: { peerUid: "g", chatType: 2, privilegeFlag: 0 }, keyword: "" },
+    ctx: { targetToChat: nativeTargetToChat },
+    proxy: {
+      store,
+      /* 实机形态：queryParams 为 {peerUid, chatType, keyword} 对象 */
+      queryParams: { peerUid: "g", chatType: 2, keyword: "" },
+      /* 实机形态：filterSendersUid 为 getter，每次访问返回新数组（防引用相等） */
+      queryFilterParams: {
+        filterMsgFromTime: null,
+        filterMsgToTime: null,
+        get filterSendersUid() { return []; },
+      },
+      initRecordData() { state.nativeCalls.push({ fn: "initRecordData", args: [] }); return nativeGetMsg({ peerUid: "g", chatType: 2, keyword: "" }); },
+    },
+    parent: null,
+    isUnmounted: false,
+  };
+  document.querySelector(".record-all-msg").__VUE__ = [instance];
+  document.querySelector(".record").__VUE__ = [{ setupState: { currentTab: "all" } }];
+  window.__VUE_INSTANCE = instance;
+
+  /* 模拟原生输入框关键词变化：props/queryParams 更新 + 调 store.getMsgByKeyWord
+     （active 时该方法已被适配器接管，inactive 时为原生实现） */
+  window.__nativeKeywordChange = function (kw) {
+    instance.props.keyword = kw;
+    instance.proxy.queryParams.keyword = kw;
+    store.getMsgByKeyWord(kw);
+  };
+
+  /* ---------- mock window.anti_recall（与 preload 暴露面一致） ---------- */
+  const subs = new Set();
+  window.anti_recall = {
+    getNativeRecallRecords(query) {
+      state.apiCalls.push({ ...query });
+      let src = RECALLED.filter((r) => !query.keyword || textOf(r).includes(query.keyword));
+      if (Array.isArray(query.filterSendersUid) && query.filterSendersUid.length) {
+        src = src.filter((r) => query.filterSendersUid.includes(r.senderUid));
+      }
+      const off = Number(query.offset) || 0;
+      const lim = Number(query.limit) || 50;
+      const page = src.slice(off, off + lim);
+      return Promise.resolve({
+        peerUid: query.peerUid, chatType: query.chatType,
+        records: page, total: src.length,
+        hasMore: off + page.length < src.length, offset: off, limit: lim,
+      });
+    },
+    recallHistoryChanged(cb) {
+      subs.add(cb);
+      state.recallSubs++;
+      return () => subs.delete(cb);
+    },
+  };
+  window.__emitRecallChanged = function (info, opts) {
+    if (opts && opts.addNew) {
+      RECALLED.push({ msgId: "recall-1004", msgSeq: "10", msgTime: "1760010000", senderUid: "u3", elements: [{ type: "text", textElement: { content: "撤回样本D 专有词" } }] });
+    }
+    for (const cb of [...subs]) cb({}, info);
+  };
+
+  /* ---------- hash 路由：#/record 之外为聊天主路由 ---------- */
+  const recordPage = document.getElementById("record-page");
+  const chatMain = document.getElementById("chat-main");
+  function applyRoute() {
+    const rec = /^#\/record(?:[/?]|$)/.test(location.hash);
+    recordPage.hidden = !rec;
+    chatMain.hidden = rec;
+  }
+  window.addEventListener("hashchange", applyRoute);
+  applyRoute();
+  render();
+})();
+</script>
+<script type="module">
+  /* 加载真实插件实现（windowLauncher 内部 import recordStoreAdapter） */
+  try {
+    const mod = await import("../../windowLauncher.js");
+    window.__installHistoryWindowLauncher = mod.installHistoryWindowLauncher;
+  } catch (e) {
+    window.__TEST_STATE.bootError = (e && e.message) || String(e);
+  }
+  window.__TEST_STATE.ready = true;
+</script>
+</body>
+</html>
