@@ -1,145 +1,131 @@
-//大部分摘自LLOneBot
-const { RkeyManager } = require("./rkeyManager.js");
+"use strict";
+
 const http = require("http");
 const https = require("https");
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const { RkeyManager } = require("./rkeyManager.js");
 
-const IMAGE_HTTP_HOST = "https://gchat.qpic.cn";
-const IMAGE_HTTP_HOST_NT = "https://multimedia.nt.qq.com.cn";
+const GCHAT_IMAGE_HOST = "https://gchat.qpic.cn";
+const NT_IMAGE_HOST = "https://multimedia.nt.qq.com.cn";
+const DEFAULT_MAX_IMAGE_BYTES = 30 * 1024 * 1024;
 
 class ImgDownloader {
   constructor() {
-    this.rkeyManager = new RkeyManager("https://llob.linyuchen.net/rkey");
+    this.rkeyManager = new RkeyManager();
   }
 
-  async getImageUrl(element) {
-    if (!element) {
-      return "";
+  async getImageUrl(pic) {
+    if (!pic) return "";
+    const raw = String(pic.originImageUrl || "").trim();
+    if (!raw) return this.getLegacyImageUrl(pic);
+    let parsed;
+    try {
+      parsed = new URL(raw, GCHAT_IMAGE_HOST);
+    } catch {
+      return this.getLegacyImageUrl(pic);
     }
-    const url = element.originImageUrl; // 没有域名
-    const md5HexStr = element.md5HexStr;
-    if (url) {
-      const parsedUrl = new URL(IMAGE_HTTP_HOST + url); //临时解析拼接
-      const imageAppid = parsedUrl.searchParams.get("appid");
-      const isNewPic = imageAppid && ["1406", "1407"].includes(imageAppid);
-      if (isNewPic) {
-        let rkey = parsedUrl.searchParams.get("rkey");
-        if (rkey) {
-          return IMAGE_HTTP_HOST_NT + url;
-        }
-        const rkeyData = await this.rkeyManager.getRkey();
-        rkey =
-          imageAppid === "1406" ? rkeyData.private_rkey : rkeyData.group_rkey;
-        return IMAGE_HTTP_HOST_NT + url + rkey;
-      } else {
-        // 老的图片url，不需要rkey
-        return IMAGE_HTTP_HOST + url;
+    const appid = parsed.searchParams.get("appid");
+    if (appid !== "1406" && appid !== "1407") return parsed.toString();
+    parsed.host = new URL(NT_IMAGE_HOST).host;
+    parsed.protocol = "https:";
+    if (!parsed.searchParams.get("rkey")) {
+      let data;
+      try {
+        data = await this.rkeyManager.getRkey();
+      } catch {
+        return this.getLegacyImageUrl(pic);
       }
-    } else if (md5HexStr) {
-      // 没有url，需要自己拼接
-      return `${IMAGE_HTTP_HOST}/gchatpic_new/0/0-0-${md5HexStr.toUpperCase()}/0`;
+      const rkey = appid === "1406" ? data.private_rkey : data.group_rkey;
+      if (!rkey) return this.getLegacyImageUrl(pic);
+      parsed.searchParams.set("rkey", rkey);
     }
-    this.output("Pic url get error:", element);
-    return "";
+    if (!parsed.searchParams.get("spec")) parsed.searchParams.set("spec", "0");
+    return parsed.toString();
   }
 
-  // 下载被撤回的图片（抄自Lite-Tools）
-  async downloadPic(msgItem) {
-    if (!Array.isArray(msgItem?.elements)){
-      return;
-    }
-    for (let el of msgItem.elements){
-      if (el?.picElement) {
-        const pic = el.picElement;
-        const thumbMap = new Map([
-          [
-            0,
-            pic.sourcePath,
-          ],
-          [
-            198,
-            pic.sourcePath,
-          ],
-          [
-            720,
-            pic.sourcePath,
-          ],
-        ]);
-        const picUrl = await this.getImageUrl(el.picElement);
-        this.output(
-          "Download lost pic(s)... url=",
-          picUrl,
-          "msgId=",
-          msgItem.msgId,
-          "to=",
-          pic.sourcePath
-        );
-        let pictureRequireDownload = false;
-        try{
-          pictureRequireDownload = statSync(pic.sourcePath).size <= 100;//错误的图片
-        }catch (e) {
+  getLegacyImageUrl(pic) {
+    const md5 = String(pic?.md5HexStr || pic?.originImageMd5 || "")
+      .replace(/[^a-f0-9]/gi, "").toUpperCase();
+    return md5 ? `${GCHAT_IMAGE_HOST}/gchatpic_new/0/0-0-${md5}/0` : "";
+  }
 
-        }
-        if (!fs.existsSync(pic.sourcePath) || pictureRequireDownload) {
-          this.output("Download pic:", `${picUrl}`, " to ", pic.sourcePath);
-          const body = await this.request(`${picUrl}`);
-          try {
-            JSON.parse(body);
-            this.output('Picture already expired.', picUrl, pic.sourcePath);//过期
-          } catch (e) {
-            fs.mkdirSync(path.dirname(pic.sourcePath), { recursive: true });
-            fs.writeFileSync(pic.sourcePath, body);
-          }
-        } else {
-          this.output("Pic already existed, skip.", pic.sourcePath);
-        }
-        //需要复制原图到预览图目录
-        // thumbMap.forEach(async (el, key) => {
-        //   if (!fs.existsSync(el)) {
-        //     this.output("Copy thumbs:", `source: ${pic.sourcePath} to ${el}`);
-        //     fs.copyFile(pic.sourcePath, el);
-        //   }
-        // });
-
-        // 修复本地数据中的错误
-        if (
-          pic?.thumbPath &&
-          (pic.thumbPath instanceof Array || pic.thumbPath instanceof Object)
-        ) {
-          pic.thumbPath = thumbMap;
-        }
-      }
+  async downloadToFile(url, targetPath, maxBytes = DEFAULT_MAX_IMAGE_BYTES, signal = null) {
+    const limit = Math.max(1024, Number(maxBytes) || DEFAULT_MAX_IMAGE_BYTES);
+    await fs.promises.mkdir(path.dirname(targetPath), { recursive: true });
+    const temporaryPath = `${targetPath}.download-${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
+    try {
+      await this.requestToFile(url, temporaryPath, limit, 0, signal);
+      await fs.promises.rename(temporaryPath, targetPath);
+      return targetPath;
+    } finally {
+      await fs.promises.unlink(temporaryPath).catch(() => {});
     }
   }
 
-  async request(url) {
+  requestToFile(url, targetPath, maxBytes, redirects = 0, signal = null) {
     return new Promise((resolve, reject) => {
-      const protocol = url.startsWith("https") ? https : http;
-      const req = protocol.get(url);
-      req.on("error", (error) => {
-        this.output("Download error", error);
-        reject(error);
-      });
-      req.on("response", (res) => {
-        // 发生跳转就继续请求
-        if (res.statusCode >= 300 && res.statusCode <= 399) {
-          return resolve(this.request(res.headers.location));
+      if (!url || redirects > 5) return reject(new Error("too many image redirects"));
+      const protocol = String(url).startsWith("https:") ? https : http;
+      const request = protocol.get(url, { timeout: 12000 }, (response) => {
+        const status = Number(response.statusCode) || 0;
+        if (status >= 300 && status < 400 && response.headers.location) {
+          response.resume();
+          return resolve(this.requestToFile(
+            new URL(response.headers.location, url).toString(),
+            targetPath,
+            maxBytes,
+            redirects + 1,
+            signal
+          ));
         }
-        const chunks = [];
-        res.on("error", (error) => {
-          this.output("Download error", error);
+        if (status < 200 || status >= 300) {
+          response.resume();
+          return reject(new Error(`image HTTP ${status}`));
+        }
+        const type = String(response.headers["content-type"] || "");
+        if (/json|text\//i.test(type)) {
+          response.resume();
+          return reject(new Error(`unexpected image content type: ${type}`));
+        }
+        const declaredBytes = Number(response.headers["content-length"] || 0);
+        if (declaredBytes > maxBytes) {
+          response.resume();
+          return reject(new Error("image response exceeds size limit"));
+        }
+        let receivedBytes = 0;
+        let settled = false;
+        const output = fs.createWriteStream(targetPath, { flags: "wx", mode: 0o600 });
+        const fail = (error) => {
+          if (settled) return;
+          settled = true;
+          response.destroy();
+          output.destroy();
           reject(error);
+        };
+        response.on("data", (chunk) => {
+          receivedBytes += chunk.length;
+          if (receivedBytes > maxBytes) fail(new Error("image response exceeds size limit"));
         });
-        res.on("data", (chunk) => chunks.push(chunk));
-        res.on("end", () => resolve(Buffer.concat(chunks)));
+        response.on("aborted", () => fail(new Error("image response aborted")));
+        response.on("error", fail);
+        output.on("error", fail);
+        output.on("finish", () => {
+          if (settled) return;
+          settled = true;
+          resolve(receivedBytes);
+        });
+        response.pipe(output);
       });
+      request.on("timeout", () => request.destroy(new Error("image request timed out")));
+      request.on("error", reject);
+      if (signal) {
+        if (signal.aborted) request.destroy(new Error("image request aborted"));
+        else signal.addEventListener("abort", () => request.destroy(new Error("image request aborted")), { once: true });
+      }
     });
-  }
-
-  output(...args) {
-    console.log("\x1b[32m%s\x1b[0m", "Anti-Recall:", ...args);
   }
 }
 
-module.exports.ImgDownloader = ImgDownloader;
+module.exports = { ImgDownloader };

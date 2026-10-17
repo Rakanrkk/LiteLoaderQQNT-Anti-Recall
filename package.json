@@ -1,5 +1,14 @@
 {
+  "name": "liteloaderqqnt-anti-recall",
+  "version": "0.3.0",
+  "private": true,
+  "description": "QQNT anti-recall plugin with macOS persistence support",
+  "license": "MIT",
+  "scripts": {
+    "test": "bash run-tests.sh"
+  },
   "dependencies": {
+    "level": "^7.0.1",
     "level-party": "^5.1.1"
   }
 }
